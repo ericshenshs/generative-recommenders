@@ -1,7 +1,23 @@
 
-# clone
+# Why Clone?
 
 The cloned repository is for understanding the original codebase: We use cursor to add comments to the codebase, keeping the original codebase unchanged.
+
+## Code Structure
+
+The repository is organized as follows:
+
+- `configs/`: Configuration files for different datasets and model variants
+  - `ml-1m/`: Configurations for MovieLens-1M experiments
+  - `ml-20m/`: Configurations for MovieLens-20M experiments
+  - `ml-3b/`: Configurations for MovieLens-3B experiments
+  - `amzn-books/`: Configurations for Amazon Books experiments
+
+- `generative_recommenders/`: Core model implementation
+
+- `trainer/`: Training loop and data loading utilities
+  - [x] `data_loader.py`: Data loading and preprocessing
+  - `trainer.py`: Main training loop logic
 
 # Generative Recommenders
 
