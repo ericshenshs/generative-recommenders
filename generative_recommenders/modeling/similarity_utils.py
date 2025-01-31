@@ -207,10 +207,87 @@ def get_similarity_function(
     bf16_training: bool = False,
     activation_checkpoint: bool = False,
 ) -> Tuple[torch.nn.Module, str]:
+    """
+    Factory function to create a similarity module based on the specified type.
+
+    This function creates modules that compute similarity scores between query and item embeddings:
+    - DotProduct: Simple dot product between query and item vectors
+    - MoL (Mixture of Learners): More sophisticated similarity with multiple learned components
+
+    Args:
+        module_type: Type of similarity function ("DotProduct" or "MoL")
+        query_embedding_dim: Dimension of query embeddings (user/context representations)
+        item_embedding_dim: Dimension of item embeddings (must match query dimension)
+        bf16_training: Whether to use bfloat16 precision during training
+        activation_checkpoint: Whether to use gradient checkpointing
+
+    Returns:
+        Tuple of:
+        - interaction_module: The similarity module (torch.nn.Module)
+        - interaction_module_debug_str: Debug string describing the module configuration
+
+    The similarity module is a key component that:
+    1. Takes query embeddings (representing user context/interests)
+    2. Takes item embeddings (representing candidate items)
+    3. Computes similarity scores between them
+    4. Used to rank items for recommendations
+
+    Two types supported:
+    1. DotProduct:
+       - Simple inner product between query and item vectors
+       - Fast and memory efficient
+       - Works well for basic recommendation tasks
+       
+    2. MoL (Mixture of Learners):
+       - More sophisticated learned similarity function
+       - Uses multiple dot product "experts"
+       - Has learned gating to combine expert outputs
+       - Better captures complex similarity patterns
+       - More parameters but potentially better accuracy
+    """
     if module_type == "DotProduct":
+        # DotProductSimilarity forward function:
+        #
+        # Takes query embeddings [B, Q, D] and item embeddings [B, N, D] where:
+        # - B is batch size
+        # - Q is number of queries (usually 1)
+        # - N is number of items
+        # - D is embedding dimension
+        #
+        # Returns similarity scores [B, Q, N] computed as:
+        # - Dot product between each query-item pair
+        # - Efficiently implemented as batch matrix multiplication (bmm)
+        # - Higher scores indicate greater similarity
+        #
         interaction_module = DotProductSimilarity()
         interaction_module_debug_str = "DotProduct"
+
     elif module_type == "MoL":
+        # MoL (Mixture of Learners) similarity function:
+        #
+        # A more sophisticated similarity function that:
+        # 1. Projects query and item embeddings through multiple "expert" networks
+        # 2. Computes multiple dot products between projected embeddings
+        # 3. Uses learned gating to combine expert outputs
+        # 4. Returns weighted combination as final similarity score
+        #
+        # Key components:
+        # - Multiple dot product "experts" capture different similarity patterns
+        # - Learned gating determines how to combine expert outputs
+        # - Projection networks transform embeddings before dot products
+        # - Dropout and normalization for regularization
+        #
+        # Advantages:
+        # - Can learn complex similarity patterns
+        # - More expressive than simple dot product
+        # - Gating allows dynamic expert weighting
+        # - Multiple experts capture different aspects
+        #
+        # Disadvantages:
+        # - More parameters to learn
+        # - Higher computational cost
+        # - May overfit on small datasets
+        # - Requires careful tuning of hyperparameters
         interaction_module, interaction_module_debug_str = (
             create_mol_interaction_module(
                 query_embedding_dim=query_embedding_dim,
