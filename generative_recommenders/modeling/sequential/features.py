@@ -20,6 +20,14 @@ import torch
 
 
 class SequentialFeatures(NamedTuple):
+    """
+    Represents a user's historical interactions with items.
+    Contains:
+    - past_lengths: (B,) Length of each user's history
+    - past_ids: (B, N,) Movie IDs in user histories
+    - past_embeddings: (B, N, D) Embeddings for each movie in user history
+    - past_payloads: Dict[str, torch.Tensor] Additional metadata about each interaction
+    """
     # (B,) x int64. Requires past_lengths[i] > 0 \forall i.
     past_lengths: torch.Tensor
     # (B, N,) x int64. 0 denotes valid ids.
@@ -36,6 +44,26 @@ def movielens_seq_features_from_row(
     device: int,
     max_output_length: int,
 ) -> Tuple[SequentialFeatures, torch.Tensor, torch.Tensor]:
+    """Converts a row of MovieLens data into sequential features format.
+
+    Args:
+        row (Dict[str, torch.Tensor]): Dictionary containing MovieLens data tensors:
+            - history_lengths: (B,) Length of each user's history
+            - historical_ids: (B, N) Movie IDs in user histories
+            - historical_ratings: (B, N) Ratings in user histories
+            - historical_timestamps: (B, N) Timestamps in user histories
+            - target_ids: (B,) Target movie IDs to predict
+            - target_ratings: (B,) Target ratings to predict
+            - target_timestamps: (B,) Target timestamps
+        device (int): GPU device ID to place tensors on
+        max_output_length (int): If > 0, pad histories to this length and include target
+
+    Returns:
+        Tuple containing:
+        - SequentialFeatures: Named tuple with user history data
+        - target_ids: (B, 1) Target movie IDs
+        - target_ratings: (B, 1) Target ratings
+    """
     historical_lengths = row["history_lengths"].to(device)  # [B]
     historical_ids = row["historical_ids"].to(device)  # [B, N]
     historical_ratings = row["historical_ratings"].to(device)
