@@ -123,6 +123,100 @@ def get_sequential_encoder(
     verbose: bool,
     activation_checkpoint: bool = False,
 ) -> SequentialEncoderWithLearnedSimilarityModule:
+    """
+    Factory function to create a sequential encoder model based on the specified module type.
+    
+    A factory function is a design pattern that provides an interface for creating objects
+    without explicitly specifying their exact classes. Key aspects:
+
+    1. Encapsulation: Hides object creation logic from the client code
+       - Client code doesn't need to know implementation details
+       - Creation logic is centralized in one place
+       
+    2. Flexibility: Allows runtime decisions about which class to instantiate
+       - Can choose different implementations based on parameters
+       - Easy to add new types without changing client code
+       
+    3. Consistency: Ensures objects are created in a standardized way
+       - Enforces proper initialization and configuration
+       - Reduces duplicate object creation code
+       
+    In this case, this factory function:
+    - Takes configuration parameters as input
+    - Decides whether to create SASRec or HSTU model
+    - Configures the model with provided modules and parameters
+    - Returns a fully initialized sequential encoder
+
+    The sequential encoder processes user interaction sequences to generate recommendations:
+    1. Takes sequence of user-item interactions as input
+    2. Processes through transformer-based architecture
+    3. Generates predictions for next items
+    
+    Args:
+        module_type: Type of transformer architecture ("SASRec" or "HSTU")
+        max_sequence_length: Maximum length of input sequences
+        max_output_length: Maximum length of output predictions
+        embedding_module: Handles conversion of item IDs to embeddings
+        interaction_module: Core transformer layers for sequence processing
+        input_preproc_module: Adds positional embeddings to inputs
+        output_postproc_module: Normalizes output embeddings
+        verbose: Whether to print model architecture details
+        activation_checkpoint: Whether to use gradient checkpointing
+        
+    Returns:
+        SequentialEncoderWithLearnedSimilarityModule: Configured encoder model
+        
+    The model processes sequences by:
+    1. Converting item IDs to embeddings via embedding_module
+    2. Adding positional information via input_preproc_module  
+    3. Passing through transformer layers in interaction_module
+    4. Normalizing outputs via output_postproc_module
+    5. Computing similarity scores for next-item prediction
+    
+    Supports two architectures:
+    - SASRec: Self-Attention based Sequential Recommendation
+    - HSTU: Hierarchical Sequential Transformer Unit
+      
+    The two supported encoder architectures are:
+
+    1. SASRec (Self-Attention based Sequential Recommendation):
+       - Classic transformer architecture for sequential recommendation
+       - Uses self-attention to capture item-item relationships
+       - Each layer has:
+         - Multi-head self attention
+         - Position-wise feed forward network
+         - Layer normalization and residual connections
+       - Processes full sequence at once
+       - Good for capturing long-range dependencies
+       - Memory efficient compared to RNN approaches
+
+    2. HSTU (Hierarchical Sequential Transformer Unit):
+       - Novel hierarchical transformer architecture
+       - Processes sequence in hierarchical chunks
+       - Each chunk processed by:
+         - Local self-attention within chunk
+         - Global attention across chunk summaries
+         - Hierarchical position embeddings
+       - Benefits:
+         - More efficient than full attention
+         - Can handle longer sequences
+         - Maintains both local and global context
+         - Reduces memory and compute requirements
+       - Especially suited for long user histories
+
+    Both encoders:
+    - Take preprocessed item sequences as input
+    - Apply positional embeddings
+    - Process through transformer layers
+    - Generate contextualized representations
+    - Output embeddings for next-item prediction
+    - Support flexible sequence lengths
+    - Can be trained end-to-end
+
+    The key difference is in how they process sequences:
+    - SASRec uses standard full self-attention
+    - HSTU uses hierarchical attention for better efficiency
+    """
     if module_type == "SASRec":
         model = sasrec_encoder(
             max_sequence_length=max_sequence_length,
