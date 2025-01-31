@@ -8,16 +8,18 @@ The cloned repository is for understanding the original codebase: We use cursor 
 The repository is organized as follows:
 
 - `configs/`: Configuration files for different datasets and model variants
-  - `ml-1m/`: Configurations for MovieLens-1M experiments
-  - `ml-20m/`: Configurations for MovieLens-20M experiments
-  - `ml-3b/`: Configurations for MovieLens-3B experiments
-  - `amzn-books/`: Configurations for Amazon Books experiments
-
 - `generative_recommenders/`: Core model implementation
-
-- `trainer/`: Training loop and data loading utilities
-  - [x] `data_loader.py`: Data loading and preprocessing
-  - `trainer.py`: Main training loop logic
+  - `data/`: Dataset loading, preprocessing and data utilities
+  - `indexing/`: Efficient indexing and retrieval implementations
+  - `modeling/`: Core model architectures and components
+    - `sequential/`: Sequential model architectures and components for processing user interaction sequences
+      - `losses/`: Loss functions and metrics for training sequential recommendation models
+  - `ops/`: Custom CUDA/Triton operators for performance optimization
+  - `rails/`: Guardrails and safety mechanisms for model deployment
+  - `trainer/`: Training loop, optimization and evaluation code
+    - [x] `data_loader.py`: Data loading and preprocessing
+    - [x] `trainer.py`: Main training loop logic
+- `common.py`: Common utilities
 
 # Generative Recommenders
 
