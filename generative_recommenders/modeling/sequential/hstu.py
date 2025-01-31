@@ -238,6 +238,27 @@ class SequentialTransductionUnitJagged(torch.nn.Module):
         epsilon: float = 1e-6,
         max_length: Optional[int] = None,
     ) -> None:
+        """Sequential Transduction Unit with Jagged Tensor Support.
+
+        This module implements a sequential processing unit that can handle variable-length sequences
+        using jagged tensors. It combines linear projections and multi-head attention mechanisms.
+
+        Args:
+            embedding_dim (int): Dimension of input embeddings
+            linear_hidden_dim (int): Hidden dimension for linear projections
+            attention_dim (int): Dimension of attention mechanism
+            dropout_ratio (float): Dropout probability for regularization
+            attn_dropout_ratio (float): Dropout probability specific to attention
+            num_heads (int): Number of attention heads
+            linear_activation (str): Activation function for linear layers
+            relative_attention_bias_module (Optional[RelativeAttentionBiasModule]): 
+                Module for relative position attention bias
+            normalization (str): Type of normalization to use, defaults to "rel_bias"
+            linear_config (str): Configuration for linear projections, defaults to "uvqk"
+            concat_ua (bool): Whether to concatenate update and attention outputs
+            epsilon (float): Small constant for numerical stability
+            max_length (Optional[int]): Maximum sequence length, if any
+        """
         super().__init__()
         self._embedding_dim: int = embedding_dim
         self._linear_dim: int = linear_hidden_dim
@@ -251,6 +272,22 @@ class SequentialTransductionUnitJagged(torch.nn.Module):
         self._normalization: str = normalization
         self._linear_config: str = linear_config
         if self._linear_config == "uvqk":
+            # The uvqk config combines 4 projection matrices into a single parameter matrix:
+            # u: Update projection - maps input to hidden state (linear_hidden_dim * num_heads)
+            # v: Value projection - maps input to values for attention (linear_hidden_dim * num_heads)
+            # q: Query projection - maps input to queries for attention (attention_dim * num_heads)
+            # k: Key projection - maps input to keys for attention (attention_dim * num_heads)
+            #
+            # The shape is [embedding_dim, (2*linear_hidden_dim + 2*attention_dim)*num_heads] because:
+            # - Input has shape [embedding_dim]
+            # - We need 4 projection matrices:
+            #   - u and v: Each maps to linear_hidden_dim * num_heads
+            #     -> 2 * linear_hidden_dim * num_heads total
+            #   - q and k: Each maps to attention_dim * num_heads
+            #     -> 2 * attention_dim * num_heads total
+            # - Total output dim is sum of all projections:
+            #   (2*linear_hidden_dim + 2*attention_dim) * num_heads
+            #
             self._uvqk: torch.nn.Parameter = torch.nn.Parameter(
                 torch.empty(
                     (
@@ -302,6 +339,42 @@ class SequentialTransductionUnitJagged(torch.nn.Module):
                 where all except padded_q, padded_k are jagged.
         Returns:
             x' = f(x), (\sum_i N_i, D) x float.
+            
+        # This method implements the forward pass of the HSTU (Hierarchical Sequential Transduction Unit) layer
+        #
+        # Args:
+        #   x: Input tensor containing item embeddings, shape (sum_i N_i, D) where:
+        #      - N_i is sequence length for batch i
+        #      - D is embedding dimension
+        #      - Flattened across batches
+        #
+        #   x_offsets: Tensor of size (B+1) containing offsets to index into x
+        #              Used to identify sequence boundaries in the flattened input
+        #
+        #   all_timestamps: Optional tensor of timestamps for each item, shape (B, N)
+        #                  Used for temporal attention patterns
+        #
+        #   invalid_attn_mask: Binary mask of shape (B, N, N) where:
+        #                      - 1 indicates positions that should not attend to each other
+        #                      - 0 indicates valid attention pairs
+        #                      Used to prevent attending to padding or future items
+        #
+        #   delta_x_offsets: Optional tuple of tensors for incremental decoding:
+        #                    - First tensor: Indices into x for new items, shape (B,)
+        #                    - Second tensor: Position indices for new items, shape (B,)
+        #
+        #   cache: Optional cache state from previous forward passes, containing:
+        #          - Cached value (v) projections
+        #          - Cached query (q) projections 
+        #          - Cached key (k) projections
+        #          - Cached layer outputs
+        #          Used for efficient incremental decoding
+        #
+        #   return_cache_states: Whether to return cache tensors for future forward passes
+        #
+        # Returns:
+        #   Transformed embeddings with same shape as input x
+        #   Optional cache state if return_cache_states is True
         """
         n: int = invalid_attn_mask.size(-1)
         cached_q = None
@@ -590,8 +663,51 @@ class HSTU(SequentialEncoderWithLearnedSimilarityModule):
         self._attn_dropout_rate: float = attn_dropout_rate
         self._enable_relative_attention_bias: bool = enable_relative_attention_bias
         self._hstu = HSTUJagged(
+            # Main HSTU transformer module that processes sequences through multiple blocks
+            # 
+            # 1. Takes input embeddings and processes them through a stack of transformer blocks
+            # 2. Each block contains self-attention and feed-forward layers
+            # 3. Supports incremental generation via caching mechanism
+            # 4. Optionally handles temporal information in attention
+            # 5. Returns transformed sequence embeddings
+            #
+            # Args:
+            #   modules: List of SequentialTransductionUnit blocks that make up the transformer
+            #   autocast_dtype: Optional dtype for autocast optimization
+            #   embedding_dim: Dimension of input embeddings
+            #   linear_hidden_dim: Hidden dimension for feed-forward layers
+            #   attention_dim: Dimension of attention key/query vectors
+            #   normalization: Type of normalization to use ("rel_bias", "hstu_rel_bias", etc)
+            #   linear_config: Configuration for linear layers ("uvqk", etc)
+            #   linear_activation: Activation function for linear layers ("silu", "none", etc)
+            #   num_heads: Number of attention heads
+            #   relative_attention_bias_module: Optional module for relative position/time biases
+            #   dropout_ratio: Dropout probability for linear layers
+            #   attn_dropout_ratio: Dropout probability for attention
+            #   concat_ua: Whether to concatenate update and accumulate vectors
+            #
+            # Returns:
+            #   Transformed sequence embeddings with shape (batch_size, seq_len, embedding_dim)
+            #
             modules=[
                 SequentialTransductionUnitJagged(
+                    # SequentialTransductionUnitJagged is a transformer block that processes sequences through multiple blocks
+                    #
+                    # Args:
+                    #   embedding_dim: Dimension of input embeddings
+                    #   linear_hidden_dim: Hidden dimension for feed-forward layers
+                    #   attention_dim: Dimension of attention key/query vectors
+                    #   normalization: Type of normalization to use ("rel_bias", "hstu_rel_bias", etc)
+                    #   linear_config: Configuration for linear layers ("uvqk", etc)
+                    #   linear_activation: Activation function for linear layers ("silu", "none", etc)
+                    #   num_heads: Number of attention heads
+                    #   relative_attention_bias_module: Optional module for relative position/time biases
+                    #   dropout_ratio: Dropout probability for linear layers
+                    #   attn_dropout_ratio: Dropout probability for attention
+                    #   concat_ua: Whether to concatenate update and accumulate vectors
+                    #
+                    # Returns:
+                    #   Transformed sequence embeddings with shape (batch_size, seq_len, embedding_dim)
                     embedding_dim=self._embedding_dim,
                     linear_hidden_dim=linear_dim,
                     attention_dim=attention_dim,
@@ -677,13 +793,67 @@ class HSTU(SequentialEncoderWithLearnedSimilarityModule):
         return_cache_states: bool = False,
     ) -> Tuple[torch.Tensor, List[HSTUCacheState]]:
         """
-        [B, N] -> [B, N, D].
+        Generates user embeddings from sequence of past interactions.
+
+        This method processes user interaction sequences through the HSTU model to generate
+        contextualized user embeddings. The key steps are:
+
+        1. Input Processing:
+           - Takes past item IDs, embeddings, lengths and payloads as input
+           - Processes through input preprocessor to add positional embeddings
+           - Handles variable length sequences via past_lengths
+
+        2. HSTU Processing:
+           - Passes preprocessed embeddings through HSTU transformer blocks
+           - Uses cumulative sum of lengths to track sequence boundaries
+           - Applies attention masking to prevent invalid attention
+           - Optionally uses cached states for incremental decoding
+
+        3. Output Processing:
+           - Processes HSTU outputs through output postprocessor
+           - Returns final user embeddings and optional cache states
+
+        Args:
+            past_lengths: [B] Tensor of sequence lengths for each batch
+            past_ids: [B,N] Tensor of item IDs in each sequence
+            past_embeddings: [B,N,D] Tensor of item embeddings
+            past_payloads: Dict of additional sequence features
+            delta_x_offsets: Optional tuple of tensors for incremental processing
+            cache: Optional list of cached HSTU states
+            return_cache_states: Whether to return updated cache states
+
+        Returns:
+            Tuple of:
+            - [B,N,D] Tensor of processed user embeddings
+            - List of updated cache states (if return_cache_states=True)
+
+        The method enables both full sequence processing and incremental generation
+        via the caching mechanism.
         """
         device = past_lengths.device
         float_dtype = past_embeddings.dtype
         B, N, _ = past_embeddings.size()
 
         past_lengths, user_embeddings, _ = self._input_features_preproc(
+            # Process input sequence through input preprocessor
+            #
+            # The input preprocessor:
+            # 1. Takes raw sequence inputs (lengths, IDs, embeddings, payloads)
+            # 2. Adds learnable positional embeddings to capture sequence order
+            # 3. Applies dropout for regularization
+            # 4. Returns processed embeddings and sequence metadata
+            #
+            # Args:
+            #   past_lengths: [B] Tensor of sequence lengths
+            #   past_ids: [B,N] Tensor of item IDs
+            #   past_embeddings: [B,N,D] Tensor of item embeddings
+            #   past_payloads: Dict of additional sequence features
+            #
+            # Returns:
+            #   Tuple of:
+            #   - [B] Tensor of processed sequence lengths
+            #   - [B,N,D] Tensor of processed embeddings with positional info
+            #   - Attention mask for valid positions
             past_lengths=past_lengths,
             past_ids=past_ids,
             past_embeddings=past_embeddings,
@@ -691,7 +861,29 @@ class HSTU(SequentialEncoderWithLearnedSimilarityModule):
         )
 
         float_dtype = user_embeddings.dtype
+        # Call the HSTU module
         user_embeddings, cached_states = self._hstu(
+            # Pass sequence through HSTU transformer blocks
+            #
+            # Args:
+            #   x: [B,N,D] Tensor of input embeddings with positional info
+            #   x_offsets: [B] Tensor of cumulative sequence lengths for attention
+            #   all_timestamps: Optional [B,N] Tensor of timestamps for temporal attention
+            #   invalid_attn_mask: [N,N] Tensor masking invalid attention positions
+            #   delta_x_offsets: Optional tuple for incremental processing
+            #   cache: Optional list of cached HSTU states
+            #   return_cache_states: Whether to return updated cache
+            #
+            # Returns:
+            #   Tuple of:
+            #   - [B,N,D] Tensor of transformed sequence embeddings
+            #   - List of updated cache states if requested
+            #
+            # The HSTU transformer:
+            # 1. Processes sequences through multiple transformer blocks
+            # 2. Each block contains self-attention and feed-forward layers
+            # 3. Supports incremental generation via caching mechanism
+            # 4. Optionally handles temporal information in attention
             x=user_embeddings,
             x_offsets=torch.ops.fbgemm.asynchronous_complete_cumsum(past_lengths),
             all_timestamps=(
