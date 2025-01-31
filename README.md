@@ -33,6 +33,13 @@ To reproduce the public experiments (traditional sequential recommender setting,
 
 #### Install dependencies.
 
+(Optional) Use conda to install dependencies.
+
+```bash
+conda create --name generative-recommenders python=3.10 pytorch
+conda activate generative-recommenders
+```
+
 Install PyTorch based on official instructions. Then,
 
 ```bash
