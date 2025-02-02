@@ -1,13 +1,18 @@
 
 # Why Clone?
 
-The cloned repository is for understanding the original codebase: We use cursor to add comments to the codebase, keeping the original codebase unchanged.
+The cloned repository is for understanding the original repository. We use Cursor IDE to add comments to the codebase, keeping the original codebase unchanged.
+
 
 ## Code Structure
 
-The repository is organized as follows:
+The repository is organized as follows. And we use Cursor IDE to add comments to each file.
 
-- `configs/`: Configuration files for different datasets and model variants
+- [x] `configs/`: Configuration files for different datasets and model variants
+  - `amzn-books/`: Configuration for Amazon Books dataset
+  - `ml-1m/`: Configuration for MovieLens 1M dataset
+  - `ml-3b/`: Configuration for MovieLens 3B dataset
+  - `ml-20m/`: Configuration for MovieLens 20M dataset
 - `generative_recommenders/`: Core model implementation
   - `data/`: Dataset loading, preprocessing and data utilities
   - `indexing/`: Efficient indexing and retrieval implementations
@@ -19,7 +24,10 @@ The repository is organized as follows:
   - `trainer/`: Training loop, optimization and evaluation code
     - [x] `data_loader.py`: Data loading and preprocessing
     - [x] `trainer.py`: Main training loop logic
-- `common.py`: Common utilities
+  - `common.py`: Common utilities
+- `main.py`: Main entry point for training and evaluation
+- `preprocess_public_data.py`: Preprocess the public data
+- [x] `README.md`: This file
 
 # Generative Recommenders
 
